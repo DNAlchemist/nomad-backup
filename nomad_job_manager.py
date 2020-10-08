@@ -5,10 +5,11 @@ import json
 import time
 import argparse
 import urllib2
+from datetime import datetime
 
 BACKUP_FILE = 'nomad_jobs_backup.json'
 
-def backup(url, s3_backup=False, s3_bucket_name=None):
+def backup(url, s3_backup=False, s3_bucket_name=None, aws_access_key_id=None, aws_secret_access_key=None, endpoint_url=None, s3_folder='nomad_backups'):
 
     def get_job_list():
         nomad_jobs_url = "{}/v1/jobs".format(url)
@@ -40,17 +41,23 @@ def backup(url, s3_backup=False, s3_bucket_name=None):
     _f.close()
     if s3_backup:
         import boto3
-        s3 = boto3.resource('s3')
-        s3.Object(s3_bucket_name, 'nomad_backups/' + BACKUP_FILE).put(Body=open(BACKUP_FILE, 'rb'))
+        session = boto3.session.Session()
+        s3 = session.resource(
+            service_name='s3',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            endpoint_url=endpoint_url,
+        )
+        s3.Object(s3_bucket_name, s3_folder + "/" + datetime.utcnow().strftime("%Y/%Y-%m-%d_%H:%M:%S") + '.json').put(Body=open(BACKUP_FILE, 'rb'))
 
-def restore(url):
+def restore(url, filename):
     """
     Warning: we don't currently check to see if the job is there/running
     If we start a restore, this function will brute force start all the jobs
     in the BACKUP_FILE
     """
     post_job_url = "{}/v1/jobs".format(url)
-    _f = open(BACKUP_FILE, 'r')
+    _f = open(filename, 'r')
     job_list = json.loads(_f.read())
     for job in job_list:
         job_id = job['job']['ID']
@@ -60,6 +67,7 @@ def restore(url):
             req = urllib2.Request(post_job_url)
             req.add_header('Content-Type', 'application/json')
             response = urllib2.urlopen(req, json.dumps(job))
+            print response.code
             print response.read()
         except:
             print "failed to post {}".format(job_id)
